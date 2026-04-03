@@ -101,6 +101,18 @@ function clearAppStorage() {
   } catch {}
 }
 
+async function migrateIfNeeded() {
+  const savedVersion = localStorage.getItem(VERSION_KEY);
+
+  if (savedVersion === APP_VERSION) return;
+
+  clearAppStorage();
+
+  try {
+    localStorage.setItem(VERSION_KEY, APP_VERSION);
+  } catch {}
+}
+
 async function clearAppCaches() {
   if (!('caches' in window)) return;
 
