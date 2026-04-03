@@ -191,7 +191,7 @@ function cycleState(current) {
 }
 
 function categoryLabel(cat) {
-  if (cat === 'suspects') return 'דמויות (חשודים)';
+  if (cat === 'suspects') return 'דמויות';
   if (cat === 'weapons') return 'כלי רצח';
   if (cat === 'rooms') return 'חדרים';
   return cat;
