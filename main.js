@@ -1,4 +1,6 @@
-const STORAGE_KEY = 'cluedo-pwa:v1';
+const APP_VERSION = '2';
+const STORAGE_KEY = 'cluedo-pwa:v2';
+const VERSION_KEY = 'cluedo-pwa:app-version';
 
 // Etats de cellule: 0=inconnu, 1=possede, 2=soupçonne, 3=ne l'a pas
 const CellState = {
@@ -35,7 +37,7 @@ const CARD_CATALOG = {
     { key: 'Cuisine', name: 'מסדרון' },
     { key: 'Bureau', name: 'מטבח' },
     { key: 'Salle de bain', name: 'ספרייה' },
-    {key: 'Biblioteque', name: 'סלון'},
+    { key: 'Biblioteque', name: 'סלון' },
     { key: 'Garage', name: 'חדר עבודה' }
   ]
 };
@@ -68,7 +70,9 @@ function emptyGrid(players) {
   const grid = {};
   for (const card of ALL_CARDS) {
     grid[card.id] = {};
-    for (const p of players) grid[card.id][p.id] = CellState.unknown;
+    for (const p of players) {
+      grid[card.id][p.id] = CellState.unknown;
+    }
   }
   return grid;
 }
@@ -82,7 +86,6 @@ function defaultGame(playersCount, playersNames) {
   return {
     version: 1,
     players,
-    // grid[cardId][playerId] => state int
     grid: emptyGrid(players),
     crossedCards: {},
     createdAt: Date.now(),
@@ -90,15 +93,50 @@ function defaultGame(playersCount, playersNames) {
   };
 }
 
+function clearAppStorage() {
+  try {
+    localStorage.removeItem('cluedo-pwa:v1');
+    localStorage.removeItem('cluedo-pwa:v2');
+    sessionStorage.clear();
+  } catch {}
+}
+
+async function clearAppCaches() {
+  if (!('caches' in window)) return;
+
+  try {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith('cluedo-cache-'))
+        .map((key) => caches.delete(key))
+    );
+  } catch {}
+}
+
+async function migrateIfNeeded() {
+  const savedVersion = localStorage.getItem(VERSION_KEY);
+
+  if (savedVersion === APP_VERSION) return false;
+
+  clearAppStorage();
+  await clearAppCaches();
+
+  try {
+    localStorage.setItem(VERSION_KEY, APP_VERSION);
+  } catch {}
+
+  return true;
+}
+
 function loadGame() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
+
     const parsed = JSON.parse(raw);
     if (!parsed || parsed.version !== 1) return null;
-    
 
-    // Basic migration/sanity: ensure all current cards exist.
     if (!parsed.grid) parsed.grid = {};
     if (!parsed.crossedCards) parsed.crossedCards = {};
     const grid = parsed.grid;
@@ -106,7 +144,9 @@ function loadGame() {
     for (const card of ALL_CARDS) {
       if (!grid[card.id]) grid[card.id] = {};
       for (const p of parsed.players ?? []) {
-        if (grid[card.id][p.id] == null) grid[card.id][p.id] = CellState.unknown;
+        if (grid[card.id][p.id] == null) {
+          grid[card.id][p.id] = CellState.unknown;
+        }
       }
     }
 
@@ -138,8 +178,8 @@ function stateToGlyph(state) {
   switch (state) {
     case CellState.not:
       return '×';
-      case CellState.suspect:
-        return '?';
+    case CellState.suspect:
+      return '?';
     case CellState.have:
       return '✓';
     default:
@@ -149,7 +189,6 @@ function stateToGlyph(state) {
 
 function cycleState(current) {
   const idx = CellCycle.indexOf(current);
-  // idx should always exist, but keep safe.
   const nextIdx = (idx >= 0 ? idx + 1 : 1) % CellCycle.length;
   return CellCycle[nextIdx];
 }
@@ -170,11 +209,13 @@ function computeCardStats(game, card) {
   const hasOwner = haveCount > 0;
   const allNot = notCount === game.players.length && game.players.length > 0;
 
-  // Forced owner suggestion: no one explicitly has it, and exactly one player is not marked 'not'.
   const possibleOwners = playerStates
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => s !== CellState.not);
-  const forcedOwner = !hasOwner && possibleOwners.length === 1 ? game.players[possibleOwners[0].i] : null;
+
+  const forcedOwner = !hasOwner && possibleOwners.length === 1
+    ? game.players[possibleOwners[0].i]
+    : null;
 
   return { haveCount, notCount, suspectCount, hasOwner, allNot, forcedOwner };
 }
@@ -192,7 +233,6 @@ function computeSuggestions(game) {
 
     if (st.allNot) solution[card.category].certain.push(card);
 
-    // Candidates: cards that nobody has (no explicit have), sorted by how many players are marked not.
     if (!st.hasOwner) {
       solution[card.category].candidates.push({ card, ...st });
     }
@@ -228,16 +268,24 @@ function clear(el) {
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
+
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === 'class') node.className = v;
-    else if (k === 'dataset') Object.assign(node.dataset, v);
-    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
-    else if (v !== undefined && v !== null) node.setAttribute(k, String(v));
+    if (k === 'class') {
+      node.className = v;
+    } else if (k === 'dataset') {
+      Object.assign(node.dataset, v);
+    } else if (k.startsWith('on') && typeof v === 'function') {
+      node.addEventListener(k.slice(2), v);
+    } else if (v !== undefined && v !== null) {
+      node.setAttribute(k, String(v));
+    }
   }
+
   for (const ch of children) {
     if (ch == null) continue;
     node.appendChild(typeof ch === 'string' ? document.createTextNode(ch) : ch);
   }
+
   return node;
 }
 
@@ -245,13 +293,11 @@ function renderSetup(app, initialPlayers = 3) {
   clear(app);
 
   const wrap = el('div', { class: 'card section' });
-
   const grid = el('div', { class: 'col' });
 
   const countLabel = el('label', {}, ['מספר שחקנים']);
   const countInput = document.createElement('input');
-  // `type="number"` peut se comporter de façon étrange en RTL selon les navigateurs.
-  // On utilise un champ texte et on normalise manuellement.
+
   countInput.type = 'text';
   countInput.inputMode = 'numeric';
   countInput.autocomplete = 'off';
@@ -259,7 +305,6 @@ function renderSetup(app, initialPlayers = 3) {
   countInput.style.direction = 'ltr';
   countInput.style.textAlign = 'right';
 
-  // Support des chiffres arabes/indiques (ex: ٣ au lieu de 3).
   const digitMap = {
     '٠': '0',
     '١': '1',
@@ -291,8 +336,10 @@ function renderSetup(app, initialPlayers = 3) {
     const ascii = toAsciiDigits(value);
     const m = ascii.match(/\d+/);
     if (!m) return null;
+
     const n = parseInt(m[0], 10);
     if (!Number.isFinite(n)) return null;
+
     return Math.max(2, Math.min(8, n));
   }
 
@@ -303,6 +350,7 @@ function renderSetup(app, initialPlayers = 3) {
 
   function renderPlayerInputs(count) {
     clear(playersBox);
+
     for (let i = 0; i < count; i++) {
       const lbl = el('label', {}, ['שם השחקן ' + (i + 1)]);
       const inp = document.createElement('input');
@@ -311,6 +359,7 @@ function renderSetup(app, initialPlayers = 3) {
       inp.autocomplete = 'off';
       inp.setAttribute('data-player-idx', String(i));
       inp.value = '';
+
       playersBox.appendChild(lbl);
       playersBox.appendChild(inp);
     }
@@ -321,9 +370,14 @@ function renderSetup(app, initialPlayers = 3) {
   const applyFromInput = () => {
     const n = normalizePlayerCount(countInput.value);
     if (n == null) return;
-    if (String(n) !== countInput.value) countInput.value = String(n);
+
+    if (String(n) !== countInput.value) {
+      countInput.value = String(n);
+    }
+
     renderPlayerInputs(n);
   };
+
   countInput.addEventListener('input', applyFromInput);
   countInput.addEventListener('change', applyFromInput);
   countInput.addEventListener('blur', applyFromInput);
@@ -337,17 +391,18 @@ function renderSetup(app, initialPlayers = 3) {
       .sort((a, b) => Number(a.dataset.playerIdx) - Number(b.dataset.playerIdx))
       .map((inp) => inp.value);
 
-    const cleaned = names.map((nm, i) => {
-      const x = normalizeName(nm) || ('שחקן ' + (i + 1));
-      return x;
-    });
+    const cleaned = names.map((nm, i) => normalizeName(nm) || ('שחקן ' + (i + 1)));
 
     const game = defaultGame(n, cleaned);
     saveGame(game);
     renderMain(app, game);
   });
 
-  const hint = el('div', { class: 'mini' }, ['טיפ: לחץ על תא כדי לעבור בין המצבים: לא ידוע → יש לו → אני חושד → אין לו.']);
+  const hint = el(
+    'div',
+    { class: 'mini' },
+    ['טיפ: לחץ על תא כדי לעבור בין המצבים: לא ידוע → אין לו → אני חושד → יש לו.']
+  );
 
   grid.appendChild(el('div', { class: 'col' }, [countLabel, countInput]));
   grid.appendChild(playersBox);
@@ -366,6 +421,7 @@ function renderMain(app, game) {
   const backBtn = el('button', { class: 'btnGhost' }, ['חזרה']);
   backBtn.addEventListener('click', () => {
     if (!confirm('לחזור להגדרת המשחק? זה ימחק את כל הסימונים.')) return;
+
     localStorage.removeItem(STORAGE_KEY);
     renderSetup(app, game.players.length);
   });
@@ -373,6 +429,7 @@ function renderMain(app, game) {
   const resetBtn = el('button', { class: 'btnDanger' }, ['איפוס']);
   resetBtn.addEventListener('click', () => {
     if (!confirm('לאפס את הטבלה ולהתחיל מחדש?')) return;
+
     const newGame = defaultGame(game.players.length, game.players.map((p) => p.name));
     saveGame(newGame);
     game = newGame;
@@ -381,7 +438,6 @@ function renderMain(app, game) {
 
   actions.appendChild(backBtn);
   actions.appendChild(resetBtn);
-
   topHeader.appendChild(actions);
 
   app.appendChild(el('div', { class: 'card section' }, [topHeader]));
@@ -389,6 +445,7 @@ function renderMain(app, game) {
   const boardCard = el('div', { class: 'card' });
   const boardWrap = el('div', { class: 'section' });
   const boardTitle = el('div', { class: 'row' });
+
   boardWrap.appendChild(boardTitle);
   boardCard.appendChild(boardWrap);
 
@@ -399,17 +456,14 @@ function renderMain(app, game) {
 
   renderBoard(boardCard, game);
 
-  function renderBoard(container, game) {
+  function renderBoard(container, currentGame) {
     const matrixWrapEl = container.querySelector('.matrixWrap') || matrixWrap;
     clear(matrixWrapEl);
 
-    // Lignes = cartes (דמויות/כלי רצח/חדרים), colonnes = joueurs.
-    // Affichage en 3 blocs séparés (comme sur ton image).
     const categories = ['suspects', 'weapons', 'rooms'];
+
     for (const cat of categories) {
-      const block = el('div', {
-        class: 'solutionBlock'
-      });
+      const block = el('div', { class: 'solutionBlock' });
       block.style.marginBottom = '10px';
 
       block.appendChild(el('h3', {}, [categoryLabel(cat)]));
@@ -426,7 +480,7 @@ function renderMain(app, game) {
       th0.textContent = 'קלפים';
       hr.appendChild(th0);
 
-      for (const p of game.players) {
+      for (const p of currentGame.players) {
         const th = document.createElement('th');
         th.textContent = p.name;
         hr.appendChild(th);
@@ -441,37 +495,38 @@ function renderMain(app, game) {
         const tr = document.createElement('tr');
 
         const th = document.createElement('th');
-th.textContent = card.name;
+        th.textContent = card.name;
 
-      const isCrossed = !!game.crossedCards?.[card.id];
-      if (isCrossed) {
-        th.style.textDecoration = 'line-through';
-        th.style.opacity = '0.6';
-      }
+        const isCrossed = !!currentGame.crossedCards?.[card.id];
+        if (isCrossed) {
+          th.style.textDecoration = 'line-through';
+          th.style.opacity = '0.6';
+        }
 
-      th.style.cursor = 'pointer';
-      th.title = 'לחץ כדי לסמן/לבטל';
+        th.style.cursor = 'pointer';
+        th.title = 'לחץ כדי לסמן/לבטל';
 
-      th.addEventListener('click', () => {
-        if (!game.crossedCards) game.crossedCards = {};
-        game.crossedCards[card.id] = !game.crossedCards[card.id];
-        saveGame(game);
-        renderMain(app, game);
-      });
+        th.addEventListener('click', () => {
+          if (!currentGame.crossedCards) currentGame.crossedCards = {};
+          currentGame.crossedCards[card.id] = !currentGame.crossedCards[card.id];
+          saveGame(currentGame);
+          renderMain(app, currentGame);
+        });
 
-      tr.appendChild(th);
+        tr.appendChild(th);
 
-        for (const p of game.players) {
+        for (const p of currentGame.players) {
           const td = document.createElement('td');
+
           const btn = document.createElement('button');
           btn.className = 'cell';
 
-          const state = game.grid?.[card.id]?.[p.id] ?? CellState.unknown;
+          const state = currentGame.grid?.[card.id]?.[p.id] ?? CellState.unknown;
           btn.dataset.state = String(state);
 
           btn.setAttribute(
             'aria-label',
-            (card.name + ', ' + p.name + ': ' + (stateToText(state) || 'לא ידוע') + ' (לחץ כדי לשנות)')
+            card.name + ', ' + p.name + ': ' + (stateToText(state) || 'לא ידוע') + ' (לחץ כדי לשנות)'
           );
 
           const inner = document.createElement('div');
@@ -485,12 +540,11 @@ th.textContent = card.name;
           btn.appendChild(inner);
 
           btn.addEventListener('click', () => {
-            // Mutate game in memory, then save + rerender.
-            const current = game.grid[card.id][p.id] ?? CellState.unknown;
+            const current = currentGame.grid[card.id][p.id] ?? CellState.unknown;
             const next = cycleState(current);
-            game.grid[card.id][p.id] = next;
-            saveGame(game);
-            renderMain(app, game);
+            currentGame.grid[card.id][p.id] = next;
+            saveGame(currentGame);
+            renderMain(app, currentGame);
           });
 
           td.appendChild(btn);
@@ -518,7 +572,7 @@ function escapeHtml(s) {
         return '&gt;';
       case '"':
         return '&quot;';
-      case "'":
+      case '\'':
         return '&#039;';
       default:
         return c;
@@ -529,15 +583,38 @@ function escapeHtml(s) {
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  // PWA: on peut enregistrer en local via http (localhost fonctionne).
   try {
-    await navigator.serviceWorker.register('./sw.js');
+    const registration = await navigator.serviceWorker.register('./sw.js');
+
+    if (registration.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      if (!newWorker) return;
+
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          newWorker.postMessage({ type: 'SKIP_WAITING' });
+        }
+      });
+    });
+
+    let hasRefreshed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hasRefreshed) return;
+      hasRefreshed = true;
+      window.location.reload();
+    });
   } catch {
-    // Silencieux: l’app reste utilisable.
+    // silencieux
   }
 }
 
 async function bootstrap() {
+  await migrateIfNeeded();
+
   const app = ensureAppRoot();
   const game = loadGame();
 

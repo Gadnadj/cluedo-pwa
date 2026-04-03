@@ -1,6 +1,6 @@
-const CACHE = 'cluedo-pwa-v1';
+const CACHE_NAME = 'cluedo-cache-v2';
 
-const ASSETS = [
+const URLS_TO_CACHE = [
   './',
   './index.html',
   './styles.css',
@@ -11,24 +11,33 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
+
   event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(ASSETS))
-      .then(() => self.skipWaiting())
-      .catch(() => {})
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(URLS_TO_CACHE))
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(keys.map((key) => (key === CACHE ? null : caches.delete(key))))
-      )
-      .then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+
+      await Promise.all(
+        keys
+          .filter((key) => key !== CACHE_NAME)
+          .map((key) => caches.delete(key))
+      );
+
+      await self.clients.claim();
+    })()
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {
@@ -39,10 +48,14 @@ self.addEventListener('fetch', (event) => {
       if (cached) return cached;
 
       return fetch(event.request)
-        .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, copy)).catch(() => {});
-          return resp;
+        .then((response) => {
+          const copy = response.clone();
+
+          caches.open(CACHE_NAME)
+            .then((cache) => cache.put(event.request, copy))
+            .catch(() => {});
+
+          return response;
         })
         .catch(() => caches.match('./index.html'));
     })
