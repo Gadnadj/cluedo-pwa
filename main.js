@@ -382,19 +382,25 @@ function renderSetup(app, initialPlayers = 3) {
   const startBtn = el('button', { class: 'btnPrimary' }, ['התחל']);
   startBtn.addEventListener('click', () => {
     const n = normalizePlayerCount(countInput.value) ?? initialN;
-
+  
     const inputs = Array.from(playersBox.querySelectorAll('input[data-player-idx]'));
     const names = inputs
       .sort((a, b) => Number(a.dataset.playerIdx) - Number(b.dataset.playerIdx))
       .map((inp) => inp.value);
-
-    const cleaned = names.map((nm, i) => normalizeName(nm) || ('שחקן ' + (i + 1)));
-
+  
+    const cleaned = names.map((nm, i) => {
+      const x = normalizeName(nm) || ('שחקן ' + (i + 1));
+      return x;
+    });
+  
     const game = defaultGame(n, cleaned);
     saveGame(game);
+  
+    if (n >= 5) {
+      alert('עבור 5 שחקנים או יותר, מומלץ לסובב את הטלפון לרוחב כדי לראות טוב יותר.');    }
+  
     renderMain(app, game);
   });
-
   const hint = el(
     'div',
     { class: 'mini' },
