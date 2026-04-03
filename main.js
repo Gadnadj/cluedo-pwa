@@ -8,7 +8,7 @@ const CellState = {
   not: 3
 };
 
-const CellCycle = [CellState.unknown, CellState.have, CellState.suspect, CellState.not];
+const CellCycle = [CellState.unknown, CellState.not, CellState.suspect, CellState.have];
 
 const CARD_CATALOG = {
   suspects: [
@@ -35,7 +35,7 @@ const CARD_CATALOG = {
     { key: 'Cuisine', name: 'מסדרון' },
     { key: 'Bureau', name: 'מטבח' },
     { key: 'Salle de bain', name: 'ספרייה' },
-    { key: 'Bibliothèque', name: 'סלו' },
+    {key: 'Biblioteque', name: 'סלון'},
     { key: 'Garage', name: 'חדר עבודה' }
   ]
 };
@@ -136,12 +136,12 @@ function stateToText(state) {
 
 function stateToGlyph(state) {
   switch (state) {
-    case CellState.have:
-      return '✓';
-    case CellState.suspect:
-      return '?';
     case CellState.not:
       return '×';
+      case CellState.suspect:
+        return '?';
+    case CellState.have:
+      return '✓';
     default:
       return '';
   }
